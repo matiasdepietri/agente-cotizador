@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: agente-cotizador
+Version: 0.1.0
+Requires-Python: >=3.11
+Requires-Dist: openai
+Requires-Dist: instructor
+Requires-Dist: pydantic
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: supabase
+Requires-Dist: python-dotenv
+Requires-Dist: rapidfuzz
+Requires-Dist: loguru
+Requires-Dist: httpx
+Requires-Dist: weasyprint
+Requires-Dist: resend
+Requires-Dist: apscheduler

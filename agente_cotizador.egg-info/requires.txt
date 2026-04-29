@@ -1,0 +1,13 @@
+openai
+instructor
+pydantic
+fastapi
+uvicorn
+supabase
+python-dotenv
+rapidfuzz
+loguru
+httpx
+weasyprint
+resend
+apscheduler

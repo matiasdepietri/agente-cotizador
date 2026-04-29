@@ -1,0 +1,20 @@
+[project]
+name = "agente-cotizador"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+dependencies = [
+    "openai",
+    "instructor",
+    "pydantic",
+    "fastapi",
+    "uvicorn",
+    "supabase",
+    "python-dotenv",
+    "rapidfuzz",
+    "loguru",
+    "httpx",
+    "weasyprint",
+    "resend",
+    "apscheduler",
+]

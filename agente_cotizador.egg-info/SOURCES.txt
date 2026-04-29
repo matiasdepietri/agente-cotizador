@@ -1,0 +1,7 @@
+main.py
+pyproject.toml
+agente_cotizador.egg-info/PKG-INFO
+agente_cotizador.egg-info/SOURCES.txt
+agente_cotizador.egg-info/dependency_links.txt
+agente_cotizador.egg-info/requires.txt
+agente_cotizador.egg-info/top_level.txt
