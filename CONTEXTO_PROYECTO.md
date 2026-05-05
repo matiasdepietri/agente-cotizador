@@ -31,7 +31,7 @@ Un agente conversacional con IA que ayuda a vendedores a armar cotizaciones. El 
 4. Pide **confirmación humana** al vendedor antes de enviar
 5. Registra la cotización en el ERP
 6. Genera PDF y manda mail al cliente
-7. Hace seguimiento con recordatorios al vendedor según urgencia (A/B/C)
+7. Hace seguimiento con recordatorios automáticos al vendedor por Telegram según urgencia (A/B/C)
 8. Cuando el cliente acepta → crea Orden de Venta y cierra el seguimiento
 
 **Reglas duras:**
@@ -47,10 +47,11 @@ Un agente conversacional con IA que ayuda a vendedores a armar cotizaciones. El 
 
 - **LLM**: OpenAI (gpt-4o-mini en desarrollo, gpt-4o en producción)
 - **Framework del agente**: OpenAI SDK directo + Function Calling (sin LangChain, sin Assistants API)
-- **Backend**: FastAPI
+- **Backend**: FastAPI (pendiente)
 - **DB**: Supabase (PostgreSQL)
 - **Lenguaje**: Python 3.11+
-- **Canal inicial**: web simple (después Telegram, WhatsApp)
+- **Notificaciones**: Telegram Bot API (via httpx, sin librería extra)
+- **Canal inicial**: terminal (después Telegram conversacional, WhatsApp)
 
 ### Librerías instaladas (via pyproject.toml)
 `openai`, `instructor`, `pydantic`, `fastapi`, `uvicorn`, `supabase`, `python-dotenv`, `rapidfuzz`, `loguru`, `httpx`, `weasyprint`, `resend`, `apscheduler`
@@ -71,16 +72,18 @@ Un agente conversacional con IA que ayuda a vendedores a armar cotizaciones. El 
 
 - **Project ID**: `ruxuusenpzshwzogyyyx`
 - **URL**: `https://ruxuusenpzshwzogyyyx.supabase.co`
-- **Key usada**: `service_role` (pendiente de cambiar — ver sección de deuda técnica)
+- **Key usada**: `service_role` ✅ (ya cambiada)
 - **RLS**: deshabilitado en todas las tablas (acceso vía service_role key desde Python)
 - **Schemas expuestos en API**: `erp`, `app`, `public`
-- **Permisos otorgados al rol `anon`**:
-  - `GRANT USAGE ON SCHEMA erp TO anon`
-  - `GRANT SELECT ON ALL TABLES IN SCHEMA erp TO anon`
-  - `GRANT USAGE ON SCHEMA app TO anon`
-  - `GRANT SELECT ON ALL TABLES IN SCHEMA app TO anon`
-  - `GRANT INSERT, UPDATE ON ALL TABLES IN SCHEMA app TO anon`
-  - `GRANT USAGE ON ALL SEQUENCES IN SCHEMA app TO anon`
+- **Permisos otorgados** (ejecutar si aparece "permission denied"):
+  ```sql
+  GRANT USAGE ON SCHEMA erp TO service_role;
+  GRANT ALL ON ALL TABLES IN SCHEMA erp TO service_role;
+  GRANT USAGE ON ALL SEQUENCES IN SCHEMA erp TO service_role;
+  GRANT USAGE ON SCHEMA app TO service_role;
+  GRANT ALL ON ALL TABLES IN SCHEMA app TO service_role;
+  GRANT USAGE ON ALL SEQUENCES IN SCHEMA app TO service_role;
+  ```
 
 ---
 
@@ -95,11 +98,12 @@ Un agente conversacional con IA que ayuda a vendedores a armar cotizaciones. El 
 | nombre | TEXT NOT NULL | |
 | email | TEXT UNIQUE NOT NULL | |
 | telefono | TEXT | |
-| jefe_id | BIGINT FK → vendedores(id) | jerarquía |
+| jefe_id | BIGINT FK → vendedores(id) | jerarquía para escalado |
 | activo | BOOLEAN DEFAULT TRUE | |
+| telegram_id | BIGINT | ✅ agregado — para mandar recordatorios por Telegram |
 | created_at / updated_at | TIMESTAMPTZ | auto |
 
-Sembrados: 10 vendedores (incluye 2 jefes)
+Sembrados: 10 vendedores (incluye 2 jefes). Vendedor id=1 es Matias Depietri Salvat.
 
 #### `erp.listas_precios`
 | columna | tipo | detalle |
@@ -173,7 +177,7 @@ Sembrados: 260 precios (65 productos × 4 listas)
 | version | INT DEFAULT 1 | |
 | cotizacion_padre_id | BIGINT FK → cotizaciones(id) | para versionado |
 
-**Actualmente vacía** — se llena cuando el vendedor confirma el envío.
+Se llena cuando el vendedor confirma el envío via `confirmar_cotizacion`.
 
 #### `erp.cotizaciones_items`
 | columna | tipo | detalle |
@@ -186,8 +190,6 @@ Sembrados: 260 precios (65 productos × 4 listas)
 | descuento | NUMERIC(5,2) DEFAULT 0 | % |
 | iva_aplicable | NUMERIC(5,2) | snapshot del IVA al cotizar |
 | orden | INT DEFAULT 1 | |
-
-**Actualmente vacía.**
 
 ---
 
@@ -205,8 +207,6 @@ Sembrados: 260 precios (65 productos × 4 listas)
 | items | JSONB DEFAULT '[]' | ítems flexibles mientras se arma |
 | conversation_state | JSONB | contexto de la charla con el agente |
 
-Tiene registros de prueba (se pueden limpiar).
-
 #### `app.cotizaciones_seguimiento`
 | columna | tipo | detalle |
 |---|---|---|
@@ -214,14 +214,14 @@ Tiene registros de prueba (se pueden limpiar).
 | cotizacion_id | BIGINT UNIQUE | referencia a erp.cotizaciones(id) |
 | vendedor_id | BIGINT | denormalizado para queries rápidas |
 | bucket_urgencia | CHAR(1) | A / B / C |
-| proximo_recordatorio_at | TIMESTAMPTZ | |
-| ultimo_recordatorio_at | TIMESTAMPTZ | |
+| proximo_recordatorio_at | TIMESTAMPTZ | cuándo mandar el próximo recordatorio |
+| ultimo_recordatorio_at | TIMESTAMPTZ | cuándo fue el último |
 | recordatorios_enviados | INT DEFAULT 0 | |
 | recordatorios_ignorados | INT DEFAULT 0 | |
 | escalado_jefe | BOOLEAN DEFAULT FALSE | |
 | estado_seguimiento | TEXT DEFAULT 'activo' | activo / cerrado_confirmada / cerrado_perdida / cerrado_vencida |
-
-**Actualmente vacía.**
+| notas_vendedor | TEXT | |
+| created_at / updated_at | TIMESTAMPTZ | auto |
 
 #### `app.motivos_perdida`
 Sembrados: precio, plazo_entrega, competencia, sin_respuesta, postergado, otro
@@ -256,25 +256,28 @@ Cadencia de recordatorios:
 
 ```
 Agente Cotizador/
-├── main.py                  # Loop conversacional de prueba (temporario)
-├── config.py                # Carga configuración desde app.configuracion
+├── main.py                  # Loop conversacional de prueba (temporario, reemplazar con FastAPI)
+├── config.py                # Carga configuración desde app.configuracion (no usado aún)
 ├── pyproject.toml           # Dependencias del proyecto
-├── .env                     # OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY
+├── .env                     # OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN
 ├── .gitignore               # Ignora .env, __pycache__, .venv
 ├── CONTEXTO_PROYECTO.md     # Este archivo
 ├── agent/
 │   ├── __init__.py
-│   ├── core.py              # Loop conversacional con OpenAI + ejecutar_tool + chat()
-│   ├── tools.py             # Funciones-tool que el agente puede llamar
+│   ├── core.py              # Loop conversacional con OpenAI + TOOL_MAP + chat()
+│   ├── tools.py             # 7 funciones-tool que el agente puede llamar
 │   └── prompts.py           # System prompt del agente
 ├── erp/
 │   ├── __init__.py
-│   └── adapter.py           # Funciones para leer del schema erp de Supabase
+│   └── adapter.py           # Funciones para leer/escribir en schema erp de Supabase
 ├── app_db/
 │   ├── __init__.py
 │   └── adapter.py           # Funciones para leer/escribir en schema app de Supabase
+├── telegram/
+│   ├── __init__.py
+│   └── bot.py               # enviar_mensaje() — manda mensajes al vendedor via Telegram Bot API
 └── models/
-    └── schemas.py           # Modelos Pydantic: Cliente, Producto, ItemBorrador, BorradorCotizacion
+    └── schemas.py           # Modelos Pydantic: Cliente, Producto, ItemBorrador, BorradorCotizacion (no usado aún)
 ```
 
 ---
@@ -284,86 +287,97 @@ Agente Cotizador/
 ### `erp/adapter.py`
 - `buscar_cliente(supabase, query)` — fuzzy match con rapidfuzz, score_cutoff=40
 - `buscar_producto(supabase, query)` — fuzzy match con rapidfuzz, score_cutoff=60
-- `get_cliente_detalle(supabase, cliente_id)` — ficha completa del cliente
+- `get_cliente_detalle(supabase, cliente_id)` — ficha completa del cliente (rating, moneda, condicion_pago)
 - `get_precio_producto(supabase, producto_id, lista_precios_id)` — precio según lista
+- `generar_numero_cotizacion(supabase)` — lee el último COT-2026-NNNN y devuelve el siguiente
+- `confirmar_cotizacion(supabase, vendedor_id, cliente_id, items, notas, moneda, condicion_pago)` — INSERT cabecera + INSERT items con try/except rollback. Calcula subtotal, IVA 21%, total. Validez 15 días.
 
 ### `app_db/adapter.py`
-- `guardar_borrador(supabase, vendedor_id, cliente_id, items, notas)` — insert en cotizaciones_borrador
+- `consolidar_items(items)` — mergea items duplicados por producto_id sumando cantidades y subtotales
+- `guardar_borrador(supabase, vendedor_id, cliente_id, items, notas)` — insert en cotizaciones_borrador con consolidación
 - `get_borrador(supabase, borrador_id)` — trae un borrador por ID
+- `borrar_borrador(supabase, borrador_id)` — elimina el borrador después de confirmar
+- `actualizar_borrador(supabase, borrador_id, items, notas)` — fetch items existentes de DB + merge con nuevos items + update. Evita perder items no mencionados.
+- `get_borradores_por_cliente(supabase, vendedor_id, cliente_id)` — busca borradores activos para un cliente
+- `calcular_bucket(total, rating)` — devuelve A, B o C según monto y rating del cliente
+- `crear_seguimiento(supabase, cotizacion_id, vendedor_id, total, rating)` — INSERT en cotizaciones_seguimiento con bucket y primer recordatorio calculado
 
-### `config.py`
-- `get_configuracion(supabase)` — devuelve dict con todos los parámetros de app.configuracion
-
-### `agent/tools.py`
-- `tool_buscar_cliente` — wrapper de buscar_cliente con mensaje si no encuentra
-- `tool_buscar_producto` — wrapper de buscar_producto con mensaje si no encuentra
+### `agent/tools.py` (7 tools)
+- `tool_buscar_cliente` — wrapper con mensaje si no encuentra
+- `tool_buscar_producto` — wrapper con mensaje si no encuentra
 - `tool_get_precio` — wrapper de get_precio_producto
-- `tool_guardar_borrador` — wrapper de guardar_borrador
+- `tool_guardar_borrador` — valida que vengan items antes de guardar
+- `tool_confirmar_envio` — orquesta: get_borrador → get_cliente_detalle → confirmar_cotizacion → crear_seguimiento → borrar_borrador
+- `tool_get_borradores_cliente` — verifica si ya existe un borrador para el cliente antes de crear uno nuevo
+- `tool_actualizar_borrador` — valida items y actualiza el borrador existente
 
 ### `agent/core.py`
-- `TOOLS_DEFINICION` — lista con las 4 tools definidas para OpenAI (buscar_cliente, buscar_producto, get_precio, guardar_borrador)
-- `ejecutar_tool(nombre, argumentos, supabase)` — dispatcher que ejecuta la tool correcta
-- `chat(mensaje, historial, supabase, vendedor_id=1)` — loop principal conversacional
+- Cliente OpenAI creado una sola vez a nivel de módulo
+- `TOOL_MAP` — dict que mapea nombre → función (reemplaza if/elif)
+- `TOOLS_CON_VENDEDOR` — set con tools que necesitan `vendedor_id` inyectado: `{"confirmar_envio", "get_borradores_cliente"}`
+- `ejecutar_tool(nombre, argumentos, supabase, vendedor_id)` — dispatcher limpio
+- `chat(mensaje, historial, supabase, vendedor_id=1)` — loop principal con timeout=20 y try/except para errores de red
+
+### `telegram/bot.py`
+- `enviar_mensaje(telegram_id, texto)` — POST a la Telegram Bot API via httpx. Devuelve True/False. Usa `parse_mode=HTML`.
 
 ---
 
 ## LO QUE FUNCIONA HOY
 
-El flujo completo de armado de borrador funciona end-to-end:
+**Flujo completo de cotización end-to-end:**
 1. El vendedor escribe en lenguaje natural
 2. El agente busca cliente y productos con fuzzy match
 3. Trae precios según la lista del cliente
-4. Muestra el borrador y pide confirmación
-5. Cuando el vendedor confirma, guarda en `app.cotizaciones_borrador`
+4. Muestra resumen y pide confirmación explícita
+5. Verifica si ya existe un borrador para ese cliente (`get_borradores_cliente`)
+6. Guarda nuevo borrador o actualiza el existente (merge con DB, no reemplaza)
+7. Pregunta si quiere enviarlo
+8. Si confirma: crea cotización en ERP (numero COT-2026-XXXX), registra seguimiento con bucket A/B/C, borra el borrador
 
-Probado con: `"cotización para ACME S.A.: 5 bridas acero 2 pulgadas"`
+**Items consolidados:** si el mismo producto aparece dos veces, se suman cantidades y subtotales automáticamente, tanto al guardar como al actualizar.
+
+**Robustez:** timeout de 20s en llamadas a OpenAI, manejo de errores con mensaje amigable al usuario, rollback de cotización si falla el insert de items.
 
 ---
 
 ## LO QUE FALTA HACER (en orden)
 
-### Inmediato — deuda técnica
-- [ ] Cambiar `SUPABASE_KEY` en `.env` de `anon` a `service_role` (seguridad crítica para producto de calidad)
+### En curso — Bot de Telegram (recordatorios)
+- [x] Crear `telegram/bot.py` con `enviar_mensaje()`
+- [x] Agregar `TELEGRAM_BOT_TOKEN` al `.env`
+- [x] Agregar columna `telegram_id` a `erp.vendedores`
+- [ ] **Testear que `enviar_mensaje()` funciona** (pendiente, hubo problema con el comando en terminal)
+- [ ] Escribir `scheduler/cron.py` — cron con apscheduler que corre cada hora, busca cotizaciones vencidas en `app.cotizaciones_seguimiento`, agrupa por vendedor y manda un mensaje con el resumen de pendientes
+- [ ] Función en `erp/adapter.py` o `app_db/adapter.py` para traer cotizaciones activas con `proximo_recordatorio_at <= now()`
+- [ ] Lógica de escalado al jefe si `recordatorios_enviados >= recordatorios_max_antes_escalar`
+- [ ] Actualizar `proximo_recordatorio_at` y `recordatorios_enviados` después de cada envío
 
-### Fase 1 — completar MVP
+### Fase 1 — Completar MVP
+- [ ] **FastAPI** — reemplazar el `main.py` de prueba por un servidor real con rutas HTTP. Hacerlo cuando haya una interfaz real para conectar (Telegram conversacional, web).
+- [ ] **Autenticación de vendedores** — sacar el `vendedor_id=1` hardcodeado. Necesario antes de que lo usen varios vendedores.
 
-- [ ] **`confirmar_envio`** — el paso más importante:
-  1. Tomar el borrador de `app.cotizaciones_borrador`
-  2. Generar número de cotización (formato `COT-2026-0001`)
-  3. INSERT en `erp.cotizaciones` (cabecera)
-  4. INSERT en `erp.cotizaciones_items` (una fila por producto)
-  5. Calcular bucket de urgencia (monto + rating del cliente)
-  6. INSERT en `app.cotizaciones_seguimiento`
-  7. Generar PDF con weasyprint
-  8. Mandar mail al cliente con resend
-  9. Cerrar/borrar el borrador
-  - Importante: pasos 3 y 4 deben ser atómicos (todo o nada)
+### Fase 2.5 — Consulta de historial
+- [ ] `get_cotizaciones_cliente(supabase, cliente_id)` en `erp/adapter.py`
+- [ ] `get_cotizaciones_vendedor(supabase, vendedor_id)` en `erp/adapter.py`
+- [ ] `tool_ver_cotizaciones_cliente` y `tool_ver_mis_cotizaciones` en `agent/tools.py`
+- [ ] Agregarlas a `TOOLS_DEFINICION` en `agent/core.py`
+- Nota: hacerlo DESPUÉS de que haya cotizaciones confirmadas en la DB
 
-- [ ] **FastAPI** — reemplazar el `main.py` de prueba por un servidor real con rutas HTTP
-- [ ] **Autenticación de vendedores** — hoy el `vendedor_id=1` está hardcodeado
-
-### Fase 2 — Seguimiento
-- [ ] Cron con apscheduler que revisa `app.cotizaciones_seguimiento` 2x/día
-- [ ] Envía recordatorios al vendedor según bucket y cadencia
-- [ ] Escala al jefe si supera el máximo de recordatorios ignorados
+### Fase 2 — Seguimiento avanzado
 - [ ] `marcar_confirmada(cotizacion_id)` → crea Orden de Venta en ERP
 - [ ] `marcar_perdida(cotizacion_id, motivo)` → cierra el seguimiento
 
-### Fase 2.5 — Consulta de historial (agregar después de confirmar_envio)
-- [ ] `get_cotizaciones_cliente(supabase, cliente_id)` en `erp/adapter.py` — trae cotizaciones confirmadas de un cliente
-- [ ] `get_cotizaciones_vendedor(supabase, vendedor_id)` en `erp/adapter.py` — trae cotizaciones del vendedor activo
-- [ ] `tool_ver_cotizaciones_cliente` y `tool_ver_mis_cotizaciones` en `agent/tools.py`
-- [ ] Agregarlas a `TOOLS_DEFINICION` en `agent/core.py`
-- Nota: hacerlo DESPUÉS de confirmar_envio, porque antes `erp.cotizaciones` está vacía
-
-### Fase 3 — Validaciones y aprobaciones
-- [ ] Chequeo de descuento máximo por vendedor (10% sin aprobación)
-- [ ] Workflow de aprobación si supera el límite
-- [ ] Validar cliente activo, producto activo, precio disponible
+### Deuda técnica menor
+- [ ] Usar `models/schemas.py` Pydantic (actualmente no importado en ningún lado)
+- [ ] Usar `config.py` en `calcular_bucket` en lugar de valores hardcodeados
+- [ ] Mover cálculo de subtotal del LLM a Python
 
 ### Fases 4-9 (más adelante)
+- PDF con weasyprint + envío por mail con resend al confirmar
+- Telegram conversacional (vendedor le escribe al bot y responde) — requiere FastAPI + webhook
+- WhatsApp Business
 - Memoria por vendedor/cliente/producto
-- Multi-canal (WhatsApp, voz)
 - Link interactivo para el cliente
 - Tracking de aperturas
 - Versionado y negociación

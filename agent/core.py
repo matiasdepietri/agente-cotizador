@@ -147,27 +147,34 @@ def chat(mensaje: str, historial: list, supabase: Client, vendedor_id: int = 1) 
     system_message = {"role": "system", "content": SYSTEM_PROMPT + f"\n\nEl vendedor activo tiene ID: {vendedor_id}."}
     historial.append({"role": "user", "content": mensaje})
 
-    while True:
-        respuesta = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[system_message] + historial,
-            tools=TOOLS_DEFINICION,
-            tool_choice="auto",
-        )
+    try:
+        while True:
+            respuesta = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[system_message] + historial,
+                tools=TOOLS_DEFINICION,
+                tool_choice="auto",
+                timeout=20,
+            )
 
-        mensaje_respuesta = respuesta.choices[0].message
+            mensaje_respuesta = respuesta.choices[0].message
 
-        if not mensaje_respuesta.tool_calls:
-            historial.append({"role": "assistant", "content": mensaje_respuesta.content})
-            return mensaje_respuesta.content, historial
+            if not mensaje_respuesta.tool_calls:
+                historial.append({"role": "assistant", "content": mensaje_respuesta.content})
+                return mensaje_respuesta.content, historial
 
-        historial.append(mensaje_respuesta)
-        for tool_call in mensaje_respuesta.tool_calls:
-            nombre = tool_call.function.name
-            argumentos = json.loads(tool_call.function.arguments)
-            resultado = ejecutar_tool(nombre, argumentos, supabase, vendedor_id)
-            historial.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": resultado,
-            })
+            historial.append(mensaje_respuesta)
+            for tool_call in mensaje_respuesta.tool_calls:
+                nombre = tool_call.function.name
+                argumentos = json.loads(tool_call.function.arguments)
+                resultado = ejecutar_tool(nombre, argumentos, supabase, vendedor_id)
+                historial.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": resultado,
+                })
+
+    except Exception as e:
+        mensaje_error = "Hubo un problema de conexión. Por favor repetí el pedido."
+        historial.append({"role": "assistant", "content": mensaje_error})
+        return mensaje_error, historial

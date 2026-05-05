@@ -1,11 +1,22 @@
 from supabase import Client
 from datetime import datetime, timedelta, timezone
 
+def consolidar_items(items: list) -> list:
+    consolidado = {}
+    for item in items:
+        pid = item["producto_id"]
+        if pid in consolidado:
+            consolidado[pid]["cantidad"] += item["cantidad"]
+            consolidado[pid]["subtotal"] += item["subtotal"]
+        else:
+            consolidado[pid] = dict(item)
+    return list(consolidado.values())
+
 def guardar_borrador(supabase: Client, vendedor_id: int, cliente_id: int, items: list, notas: str = None) -> dict:
     data = {
         "vendedor_id": vendedor_id,
         "cliente_id": cliente_id,
-        "items": items,
+        "items": consolidar_items(items),
         "notas": notas
     }
     resultado = (
@@ -76,9 +87,17 @@ def get_borradores_por_cliente(supabase: Client, vendedor_id: int, cliente_id: i
 
 
 def actualizar_borrador(supabase: Client, borrador_id: int, items: list, notas: str = None) -> dict:
-    data = {"items": items}
+    borrador_actual = get_borrador(supabase, borrador_id)
+    if borrador_actual:
+        items_existentes = borrador_actual.get("items", [])
+        items_merged = consolidar_items(items_existentes + items)
+    else:
+        items_merged = consolidar_items(items)
+
+    data = {"items": items_merged}
     if notas is not None:
         data["notas"] = notas
+
     resultado = (
         supabase
         .schema("app")
