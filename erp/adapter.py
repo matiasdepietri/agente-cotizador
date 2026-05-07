@@ -130,3 +130,27 @@ def confirmar_cotizacion(supabase: Client, vendedor_id: int, cliente_id: int, it
         "impuestos": impuestos,
         "total": total,
     }
+
+def get_cotizaciones_cliente(supabase: Client, cliente_id: int) -> list[dict]:
+    resultado = (
+        supabase
+        .schema("erp")
+        .from_("cotizaciones")
+        .select("id, numero, fecha_emision, estado, total, moneda, validez_hasta, clientes(nombre)")
+        .eq("cliente_id", cliente_id)
+        .order("id", desc=True)
+        .execute()
+    )
+    return resultado.data
+
+def get_cotizaciones_vendedor(supabase: Client, vendedor_id: int) -> list[dict]:
+    resultado = (
+        supabase
+        .schema("erp")
+        .from_("cotizaciones")
+        .select("id, numero, fecha_emision, estado, total, moneda, cliente_id, clientes(nombre)")
+        .eq("vendedor_id", vendedor_id)
+        .order("id", desc=True)
+        .execute()
+    )
+    return resultado.data

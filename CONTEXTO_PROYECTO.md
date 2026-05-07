@@ -343,15 +343,14 @@ Agente Cotizador/
 
 ## LO QUE FALTA HACER (en orden)
 
-### En curso — Bot de Telegram (recordatorios)
+### ✅ Bot de Telegram (recordatorios) — COMPLETADO
 - [x] Crear `telegram/bot.py` con `enviar_mensaje()`
 - [x] Agregar `TELEGRAM_BOT_TOKEN` al `.env`
 - [x] Agregar columna `telegram_id` a `erp.vendedores`
-- [ ] **Testear que `enviar_mensaje()` funciona** (pendiente, hubo problema con el comando en terminal)
-- [ ] Escribir `scheduler/cron.py` — cron con apscheduler que corre cada hora, busca cotizaciones vencidas en `app.cotizaciones_seguimiento`, agrupa por vendedor y manda un mensaje con el resumen de pendientes
-- [ ] Función en `erp/adapter.py` o `app_db/adapter.py` para traer cotizaciones activas con `proximo_recordatorio_at <= now()`
-- [ ] Lógica de escalado al jefe si `recordatorios_enviados >= recordatorios_max_antes_escalar`
-- [ ] Actualizar `proximo_recordatorio_at` y `recordatorios_enviados` después de cada envío
+- [x] Testear que `enviar_mensaje()` funciona
+- [x] Escribir `scheduler/cron.py` — cron con apscheduler que corre cada hora, busca cotizaciones vencidas en `app.cotizaciones_seguimiento` y manda recordatorio al vendedor por Telegram
+- [x] Función `get_cotizaciones_para_recordar()` en `app_db/adapter.py`
+- [x] Función `actualizar_tras_recordatorio()` en `app_db/adapter.py`
 
 ### Fase 1 — Completar MVP
 - [ ] **FastAPI** — reemplazar el `main.py` de prueba por un servidor real con rutas HTTP. Hacerlo cuando haya una interfaz real para conectar (Telegram conversacional, web).
@@ -376,6 +375,7 @@ Agente Cotizador/
 ### Fases 4-9 (más adelante)
 - PDF con weasyprint + envío por mail con resend al confirmar
 - Telegram conversacional (vendedor le escribe al bot y responde) — requiere FastAPI + webhook
+  - Cuando esté implementado: agregar lógica de escalado al jefe si `recordatorios_enviados >= recordatorios_max_antes_escalar`. Hoy no se puede detectar si el vendedor ignora un recordatorio porque no hay canal de respuesta. Con Telegram conversacional el vendedor puede responder y el agente puede trackear la inacción.
 - WhatsApp Business
 - Memoria por vendedor/cliente/producto
 - Link interactivo para el cliente

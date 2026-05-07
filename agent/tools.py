@@ -74,3 +74,17 @@ def tool_actualizar_borrador(supabase: Client, borrador_id: int, items: list = N
         return {"error": True, "mensaje": "Faltan los ítems. Incluí la lista completa con producto_id, cantidad y precio_unitario de cada producto."}
     borrador = actualizar_borrador(supabase, borrador_id, items, notas)
     return {"borrador_id": borrador["id"], "mensaje": "Borrador actualizado correctamente"}
+
+def tool_ver_cotizaciones_cliente(supabase: Client, cliente_id: int) -> dict:
+    from erp.adapter import get_cotizaciones_cliente
+    cotizaciones = get_cotizaciones_cliente(supabase, cliente_id)
+    if not cotizaciones:
+        return {"cotizaciones": [], "mensaje": "No encontré cotizaciones para ese cliente"}
+    return {"cotizaciones": cotizaciones}
+
+def tool_ver_mis_cotizaciones(supabase: Client, vendedor_id: int) -> dict:
+    from erp.adapter import get_cotizaciones_vendedor
+    cotizaciones = get_cotizaciones_vendedor(supabase, vendedor_id)
+    if not cotizaciones:
+        return {"cotizaciones": [], "mensaje": "No tenés cotizaciones registradas"}
+    return {"cotizaciones": cotizaciones}

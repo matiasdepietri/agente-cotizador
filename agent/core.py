@@ -6,6 +6,7 @@ from agent.tools import (
     tool_buscar_cliente, tool_buscar_producto, tool_get_precio,
     tool_guardar_borrador, tool_confirmar_envio,
     tool_get_borradores_cliente, tool_actualizar_borrador,
+    tool_ver_cotizaciones_cliente, tool_ver_mis_cotizaciones,
 )
 import json
 
@@ -117,9 +118,35 @@ TOOLS_DEFINICION = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ver_cotizaciones_cliente",
+            "description": "Muestra el historial de cotizaciones de un cliente específico",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cliente_id": {"type": "integer", "description": "ID del cliente"}
+                },
+                "required": ["cliente_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ver_mis_cotizaciones",
+            "description": "Muestra todas las cotizaciones del vendedor activo",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
 ]
 
-TOOLS_CON_VENDEDOR = {"confirmar_envio", "get_borradores_cliente"}
+TOOLS_CON_VENDEDOR = {"confirmar_envio", "get_borradores_cliente", "ver_mis_cotizaciones"}
 
 TOOL_MAP = {
     "buscar_cliente":         tool_buscar_cliente,
@@ -129,6 +156,8 @@ TOOL_MAP = {
     "confirmar_envio":        tool_confirmar_envio,
     "get_borradores_cliente": tool_get_borradores_cliente,
     "actualizar_borrador":    tool_actualizar_borrador,
+    "ver_cotizaciones_cliente": tool_ver_cotizaciones_cliente,
+    "ver_mis_cotizaciones":     tool_ver_mis_cotizaciones,
 }
 
 

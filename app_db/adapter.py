@@ -107,3 +107,28 @@ def actualizar_borrador(supabase: Client, borrador_id: int, items: list, notas: 
         .execute()
     )
     return resultado.data[0]
+
+def get_cotizaciones_para_recordar(supabase: Client) -> list[dict]:
+    ahora = datetime.now(timezone.utc).isoformat()
+    resultado = (
+        supabase
+        .schema("app")
+        .from_("cotizaciones_seguimiento")
+        .select("id, cotizacion_id, vendedor_id, bucket_urgencia, recordatorios_enviados, recordatorios_ignorados, escalado_jefe")
+        .eq("estado_seguimiento", "activo")
+        .lte("proximo_recordatorio_at", ahora)
+        .execute()
+    )
+    return resultado.data
+
+def actualizar_tras_recordatorio(supabase: Client, seguimiento_id: int, bucket: str, recordatorios_enviados: int) -> None:
+    cadencia = {"A": [1, 3, 5, 7], "B": [3, 7, 14], "C": [7, 14]}
+    dias = cadencia[bucket]
+    indice = min(recordatorios_enviados, len(dias) - 1)
+    proximo = datetime.now(timezone.utc) + timedelta(days=dias[indice])
+
+    supabase.schema("app").from_("cotizaciones_seguimiento").update({
+        "recordatorios_enviados": recordatorios_enviados + 1,
+        "ultimo_recordatorio_at": datetime.now(timezone.utc).isoformat(),
+        "proximo_recordatorio_at": proximo.isoformat(),
+    }).eq("id", seguimiento_id).execute()
