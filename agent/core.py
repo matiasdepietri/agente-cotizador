@@ -7,6 +7,7 @@ from agent.tools import (
     tool_guardar_borrador, tool_confirmar_envio,
     tool_get_borradores_cliente, tool_actualizar_borrador,
     tool_ver_cotizaciones_cliente, tool_ver_mis_cotizaciones,
+    tool_marcar_confirmada, tool_marcar_perdida,
 )
 import json
 
@@ -144,6 +145,35 @@ TOOLS_DEFINICION = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "marcar_confirmada",
+            "description": "Marca una cotización como confirmada cuando el cliente la aceptó y cierra el seguimiento",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cotizacion_id": {"type": "integer", "description": "ID de la cotización"}
+                },
+                "required": ["cotizacion_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "marcar_perdida",
+            "description": "Marca una cotización como perdida y cierra el seguimiento",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cotizacion_id": {"type": "integer", "description": "ID de la cotización"},
+                    "motivo": {"type": "string", "description": "Motivo de la pérdida: precio, plazo_entrega, competencia, sin_respuesta, postergado, otro"}
+                },
+                "required": ["cotizacion_id"]
+            }
+        }
+    },
 ]
 
 TOOLS_CON_VENDEDOR = {"confirmar_envio", "get_borradores_cliente", "ver_mis_cotizaciones"}
@@ -158,6 +188,8 @@ TOOL_MAP = {
     "actualizar_borrador":    tool_actualizar_borrador,
     "ver_cotizaciones_cliente": tool_ver_cotizaciones_cliente,
     "ver_mis_cotizaciones":     tool_ver_mis_cotizaciones,
+    "marcar_confirmada": tool_marcar_confirmada,
+    "marcar_perdida":    tool_marcar_perdida,
 }
 
 
@@ -183,7 +215,7 @@ def chat(mensaje: str, historial: list, supabase: Client, vendedor_id: int = 1) 
                 messages=[system_message] + historial,
                 tools=TOOLS_DEFINICION,
                 tool_choice="auto",
-                timeout=20,
+                timeout=None,
             )
 
             mensaje_respuesta = respuesta.choices[0].message

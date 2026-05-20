@@ -53,6 +53,19 @@ def tool_confirmar_envio(supabase: Client, borrador_id: int, vendedor_id: int) -
             rating=cliente.get("rating", "normal"),
         )
         borrar_borrador(supabase, borrador_id)
+
+        try:
+            from generador.generator import generar_pdf
+            from telegram.bot import enviar_documento
+            vendedor_result = supabase.schema("erp").from_("vendedores").select("telegram_id, nombre").eq("id", vendedor_id).execute()
+            vendedor = vendedor_result.data[0] if vendedor_result.data else None
+            if vendedor and vendedor["telegram_id"]:
+                pdf_bytes = generar_pdf(supabase, cotizacion["cotizacion_id"])
+                filename = f"{cotizacion['numero']}.pdf"
+                enviar_documento(vendedor["telegram_id"], pdf_bytes, filename)
+        except Exception as pdf_error:
+            print(f"Error al generar/enviar PDF: {pdf_error}")
+
         return {
             "numero": cotizacion["numero"],
             "total": cotizacion["total"],
@@ -67,7 +80,6 @@ def tool_get_borradores_cliente(supabase: Client, cliente_id: int, vendedor_id: 
     if not borradores:
         return {"borradores": [], "mensaje": "No hay borradores pendientes para este cliente"}
     return {"borradores": borradores}
-
 
 def tool_actualizar_borrador(supabase: Client, borrador_id: int, items: list = None, notas: str = None) -> dict:
     if not items:
@@ -88,3 +100,17 @@ def tool_ver_mis_cotizaciones(supabase: Client, vendedor_id: int) -> dict:
     if not cotizaciones:
         return {"cotizaciones": [], "mensaje": "No tenés cotizaciones registradas"}
     return {"cotizaciones": cotizaciones}
+
+def tool_marcar_confirmada(supabase: Client, cotizacion_id: int) -> dict:
+    from erp.adapter import marcar_cotizacion_confirmada
+    from app_db.adapter import cerrar_seguimiento
+    marcar_cotizacion_confirmada(supabase, cotizacion_id)
+    cerrar_seguimiento(supabase, cotizacion_id, "cerrado_confirmada")
+    return {"mensaje": f"Cotización {cotizacion_id} marcada como confirmada y seguimiento cerrado."}
+
+def tool_marcar_perdida(supabase: Client, cotizacion_id: int, motivo: str = None) -> dict:
+    from erp.adapter import marcar_cotizacion_perdida
+    from app_db.adapter import cerrar_seguimiento
+    marcar_cotizacion_perdida(supabase, cotizacion_id)
+    cerrar_seguimiento(supabase, cotizacion_id, "cerrado_perdida", motivo)
+    return {"mensaje": f"Cotización {cotizacion_id} marcada como perdida y seguimiento cerrado."}

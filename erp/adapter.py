@@ -154,3 +154,25 @@ def get_cotizaciones_vendedor(supabase: Client, vendedor_id: int) -> list[dict]:
         .execute()
     )
     return resultado.data
+
+def marcar_cotizacion_confirmada(supabase: Client, cotizacion_id: int) -> dict:
+    resultado = (
+        supabase
+        .schema("erp")
+        .from_("cotizaciones")
+        .update({"estado": "confirmada"})
+        .eq("id", cotizacion_id)
+        .execute()
+    )
+    return resultado.data[0]
+
+def marcar_cotizacion_perdida(supabase: Client, cotizacion_id: int) -> dict:
+    resultado = (
+        supabase
+        .schema("erp")
+        .from_("cotizaciones")
+        .update({"estado": "perdida"})
+        .eq("id", cotizacion_id)
+        .execute()
+    )
+    return resultado.data[0]

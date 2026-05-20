@@ -132,3 +132,17 @@ def actualizar_tras_recordatorio(supabase: Client, seguimiento_id: int, bucket: 
         "ultimo_recordatorio_at": datetime.now(timezone.utc).isoformat(),
         "proximo_recordatorio_at": proximo.isoformat(),
     }).eq("id", seguimiento_id).execute()
+
+def cerrar_seguimiento(supabase: Client, cotizacion_id: int, estado: str, motivo: str = None) -> dict:
+    data = {"estado_seguimiento": estado}
+    if motivo:
+        data["notas_vendedor"] = motivo
+    resultado = (
+        supabase
+        .schema("app")
+        .from_("cotizaciones_seguimiento")
+        .update(data)
+        .eq("cotizacion_id", cotizacion_id)
+        .execute()
+    )
+    return resultado.data[0]

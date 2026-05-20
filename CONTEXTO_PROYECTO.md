@@ -30,9 +30,10 @@ Un agente conversacional con IA que ayuda a vendedores a armar cotizaciones. El 
 3. Arma un borrador
 4. Pide **confirmación humana** al vendedor antes de enviar
 5. Registra la cotización en el ERP
-6. Genera PDF y manda mail al cliente
-7. Hace seguimiento con recordatorios automáticos al vendedor por Telegram según urgencia (A/B/C)
-8. Cuando el cliente acepta → crea Orden de Venta y cierra el seguimiento
+6. Genera un PDF prolijo de la cotización y se lo manda al **vendedor** por Telegram como documento adjunto
+7. El vendedor descarga el PDF y se lo reenvía al cliente como prefiera (mail, WhatsApp, etc.)
+8. Hace seguimiento con recordatorios automáticos al vendedor por Telegram según urgencia (A/B/C)
+9. Cuando el cliente acepta → el vendedor lo marca en el agente → cierra el seguimiento
 
 **Reglas duras:**
 - El vendedor SIEMPRE tiene que confirmar antes de enviar al cliente.
@@ -356,12 +357,11 @@ Agente Cotizador/
 - [ ] **FastAPI** — reemplazar el `main.py` de prueba por un servidor real con rutas HTTP. Hacerlo cuando haya una interfaz real para conectar (Telegram conversacional, web).
 - [ ] **Autenticación de vendedores** — sacar el `vendedor_id=1` hardcodeado. Necesario antes de que lo usen varios vendedores.
 
-### Fase 2.5 — Consulta de historial
-- [ ] `get_cotizaciones_cliente(supabase, cliente_id)` en `erp/adapter.py`
-- [ ] `get_cotizaciones_vendedor(supabase, vendedor_id)` en `erp/adapter.py`
-- [ ] `tool_ver_cotizaciones_cliente` y `tool_ver_mis_cotizaciones` en `agent/tools.py`
-- [ ] Agregarlas a `TOOLS_DEFINICION` en `agent/core.py`
-- Nota: hacerlo DESPUÉS de que haya cotizaciones confirmadas en la DB
+### ✅ Fase 2.5 — Consulta de historial — COMPLETADO
+- [x] `get_cotizaciones_cliente(supabase, cliente_id)` en `erp/adapter.py` — con join a clientes para traer nombre
+- [x] `get_cotizaciones_vendedor(supabase, vendedor_id)` en `erp/adapter.py` — con join a clientes para traer nombre
+- [x] `tool_ver_cotizaciones_cliente` y `tool_ver_mis_cotizaciones` en `agent/tools.py`
+- [x] Agregadas a `TOOLS_DEFINICION`, `TOOL_MAP` y `TOOLS_CON_VENDEDOR` en `agent/core.py`
 
 ### Fase 2 — Seguimiento avanzado
 - [ ] `marcar_confirmada(cotizacion_id)` → crea Orden de Venta en ERP
@@ -372,8 +372,14 @@ Agente Cotizador/
 - [ ] Usar `config.py` en `calcular_bucket` en lugar de valores hardcodeados
 - [ ] Mover cálculo de subtotal del LLM a Python
 
+### Fase 3 — Generación de PDF y entrega al vendedor
+- [ ] Plantilla HTML de la cotización (logo, datos del cliente, tabla de productos, totales, condiciones)
+- [ ] Función `generar_pdf(cotizacion)` con weasyprint — genera el PDF en memoria
+- [ ] Función `enviar_documento_telegram(telegram_id, pdf_bytes, filename)` en `telegram/bot.py` — manda el PDF como documento adjunto via Bot API
+- [ ] Integrar en `tool_confirmar_envio` — después de confirmar, generar PDF y mandárselo al vendedor por Telegram
+
 ### Fases 4-9 (más adelante)
-- PDF con weasyprint + envío por mail con resend al confirmar
+- Envío por mail con resend (alternativa o complemento al PDF por Telegram)
 - Telegram conversacional (vendedor le escribe al bot y responde) — requiere FastAPI + webhook
   - Cuando esté implementado: agregar lógica de escalado al jefe si `recordatorios_enviados >= recordatorios_max_antes_escalar`. Hoy no se puede detectar si el vendedor ignora un recordatorio porque no hay canal de respuesta. Con Telegram conversacional el vendedor puede responder y el agente puede trackear la inacción.
 - WhatsApp Business
